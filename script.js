@@ -22,12 +22,12 @@
 
     // Web Audio API
     let audioContext = null;
-    let oscillator = null;
-    let gainNode = null;
     let analyser = null;
-    let lfo = null;
-    let lfoGain = null;
+    let microphoneStream = null;
+    let microphoneSource = null;
     let isRunning = false;
+    let isStarting = false;
+    let captureRequestId = 0;
     let animationId = null;
 
     // Dados do frame congelado
@@ -36,13 +36,7 @@
     let frozenSampleRate = 44100;
     let estimatedFunction = null;
 
-    // Parâmetros da onda gerada — MOVIMENTO VERTICAL LENTO
-    const BASE_FREQ = 8;              // Hz — bem lento
-    const FREQ_SWING = 2;             // variação ± Hz
-    const LFO_RATE = 0.04;            // Hz — ~25s por ciclo de variação
-    const AMPLITUDE = 0.55;
-
-    // FFT_SIZE grande => janela de tempo longa => muitos ciclos visíveis e movimento lento
+    // FFT_SIZE grande => janela de tempo longa => mais amostras visíveis
     const FFT_SIZE = 32768;
 
     // Zoom (escala horizontal do gráfico)
@@ -327,9 +321,28 @@
 
     // ==================== ÁUDIO ====================
     async function startCapture() {
-        if (isRunning) return;
+        if (isRunning || isStarting) return;
+        const requestId = ++captureRequestId;
+        isStarting = true;
+        startBtn.disabled = true;
         try {
-            statusMsg.textContent = '🎵 Iniciando...';
+            statusMsg.textContent = '🎙 Solicitando acesso ao microfone...';
+
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                throw new Error('A captura do microfone não está disponível neste navegador ou conexão.');
+            }
+
+            microphoneStream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    echoCancellation: false,
+                    noiseSuppression: false,
+                    autoGainControl: false
+                }
+            });
+            if (requestId !== captureRequestId) {
+                releaseMicrophone();
+                return;
+            }
 
             if (!audioContext) {
                 audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -337,51 +350,57 @@
             if (audioContext.state === 'suspended') {
                 await audioContext.resume();
             }
+            if (requestId !== captureRequestId) {
+                releaseMicrophone();
+                return;
+            }
 
-            oscillator = audioContext.createOscillator();
-            oscillator.type = 'sine';
-            oscillator.frequency.value = BASE_FREQ;
-
-            lfo = audioContext.createOscillator();
-            lfo.type = 'sine';
-            lfo.frequency.value = LFO_RATE;
-            lfoGain = audioContext.createGain();
-            lfoGain.gain.value = FREQ_SWING;
-            lfo.connect(lfoGain);
-            lfoGain.connect(oscillator.frequency);
-
-            gainNode = audioContext.createGain();
-            gainNode.gain.value = AMPLITUDE;
-
+            microphoneSource = audioContext.createMediaStreamSource(microphoneStream);
             analyser = audioContext.createAnalyser();
             analyser.fftSize = FFT_SIZE;
             analyser.smoothingTimeConstant = 0.85;
 
-            oscillator.connect(gainNode);
-            gainNode.connect(analyser);
-            analyser.connect(audioContext.destination);
-
-            oscillator.start();
-            lfo.start();
+            microphoneSource.connect(analyser);
 
             estimatedFunction = null;
             frozenTimeData = null;
             frozenFreqData = null;
 
             isRunning = true;
-            startBtn.disabled = true;
             stopBtn.disabled = false;
-            statusMsg.textContent = '🔊 Tocando...';
+            statusMsg.textContent = '🎙 Capturando microfone...';
 
             if (animationId) cancelAnimationFrame(animationId);
             drawFrame();
 
         } catch (err) {
+            if (requestId !== captureRequestId) return;
             console.error('Erro ao iniciar áudio:', err);
-            statusMsg.textContent = '❌ Erro de áudio';
-            startBtn.disabled = false;
+            releaseMicrophone();
+            analyser = null;
+            if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+                statusMsg.textContent = '❌ Permissão do microfone negada';
+            } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+                statusMsg.textContent = '❌ Microfone não encontrado';
+            } else {
+                statusMsg.textContent = `❌ ${err.message || 'Erro ao acessar o microfone'}`;
+            }
             stopBtn.disabled = true;
             isRunning = false;
+        } finally {
+            isStarting = false;
+            startBtn.disabled = isRunning;
+        }
+    }
+
+    function releaseMicrophone() {
+        if (microphoneSource) {
+            microphoneSource.disconnect();
+            microphoneSource = null;
+        }
+        if (microphoneStream) {
+            microphoneStream.getTracks().forEach(track => track.stop());
+            microphoneStream = null;
         }
     }
 
@@ -403,12 +422,8 @@
         frozenFreqData = new Uint8Array(freqData);
         frozenSampleRate = audioContext ? audioContext.sampleRate : 44100;
 
-        try {
-            if (oscillator) { oscillator.stop(); oscillator.disconnect(); oscillator = null; }
-            if (lfo) { lfo.stop(); lfo.disconnect(); lfo = null; }
-            if (lfoGain) { lfoGain.disconnect(); lfoGain = null; }
-            if (gainNode) { gainNode.disconnect(); gainNode = null; }
-        } catch (e) { /* ignore */ }
+        releaseMicrophone();
+        analyser = null;
 
         zoomFactor = 1.0;
         panOffset = 0;
@@ -422,18 +437,15 @@
     }
 
     function clearAll() {
+        captureRequestId++;
         if (isRunning) {
             isRunning = false;
             if (animationId) {
                 cancelAnimationFrame(animationId);
                 animationId = null;
             }
-            try {
-                if (oscillator) { oscillator.stop(); oscillator.disconnect(); oscillator = null; }
-                if (lfo) { lfo.stop(); lfo.disconnect(); lfo = null; }
-                if (lfoGain) { lfoGain.disconnect(); lfoGain = null; }
-                if (gainNode) { gainNode.disconnect(); gainNode = null; }
-            } catch (e) { /* ignore */ }
+            releaseMicrophone();
+            analyser = null;
         }
 
         frozenTimeData = null;
