@@ -154,16 +154,19 @@ canvas#waveCanvas {
     display: flex;
     flex-direction: column;
     gap: 8px;
-    flex-shrink: 0;
+    flex: 1 1 0;
+    min-height: 0;
 }
 
 .result-item {
     display: flex;
     justify-content: space-between;
-    align-items: baseline;
+    align-items: center;
     gap: 8px;
     border-bottom: 1px dashed #00ffcc30;
-    padding-bottom: 6px;
+    padding: 6px 0;
+    flex: 1 1 0;
+    min-height: 0;
 }
 
 .result-item:last-child {
@@ -175,6 +178,7 @@ canvas#waveCanvas {
     flex-direction: column;
     align-items: flex-start;
     gap: 6px;
+    flex: 1.4 1 0;
 }
 
 .result-label {
@@ -205,20 +209,32 @@ canvas#waveCanvas {
     line-height: 1.3;
 }
 
-.spectrum-container {
-    background: #000;
-    border-radius: 12px;
-    padding: 6px;
-    border: 1px solid #00ffcc30;
-    flex-shrink: 0;
+.function-toggle {
+    align-self: stretch;
+    padding: 12px 16px;
+    border: 2px solid #00ffcc;
+    border-radius: 10px;
+    background: linear-gradient(135deg, #00ffcc, #00c9a7);
+    color: #041411;
+    font-size: 0.9rem;
+    letter-spacing: 1px;
+    text-align: center;
+    text-transform: uppercase;
+    text-shadow: none;
+    box-shadow: 0 0 14px #00ffcc70, inset 0 1px 0 #ffffff60;
 }
 
-canvas#spectrumCanvas {
-    display: block;
-    width: 100%;
-    height: 100px;
-    background: #050505;
-    border-radius: 6px;
+.function-toggle:hover:not(:disabled) {
+    background: #b0fff0;
+    color: #041411;
+    border-color: #b0fff0;
+    box-shadow: 0 0 22px #00ffcc, 0 0 40px #00ffcc70;
+    transform: translateY(-2px) scale(1.01);
+}
+
+.function-toggle:focus-visible {
+    outline: 3px solid #c0ffff;
+    outline-offset: 3px;
 }
 
 /* ---------- RESPONSIVO ---------- */
@@ -241,22 +257,21 @@ canvas#spectrumCanvas {
         grid-template-rows: 1fr auto;
     }
     .sidebar {
-        max-height: 220px;
-        overflow: hidden;
+        max-height: 280px;
+        overflow-y: auto;
     }
     .results-panel {
         padding: 8px 12px;
         display: grid;
         grid-template-columns: 1fr 1fr;
         gap: 4px 14px;
+        flex: 0 0 auto;
     }
-    .result-item { padding-bottom: 2px; border-bottom: none; }
+    .result-item { padding: 2px 0; border-bottom: none; }
     .result-item.func-item { grid-column: 1 / -1; }
     .result-label { font-size: 0.72rem; }
     .result-value { font-size: 0.8rem; }
     .function-line { font-size: 0.72rem; padding: 5px 7px; }
-    .spectrum-container { padding: 4px; }
-    canvas#spectrumCanvas { height: 70px; }
 }
 
 @media (max-width: 520px) {

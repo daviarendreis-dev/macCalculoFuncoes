@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Analisador de Ondas Sonoras</title>
     <link rel="stylesheet" href="style.css">
 </head>
@@ -40,22 +40,28 @@
                         <span id="rmsValue" class="result-value">—</span>
                     </div>
                     <div class="result-item">
-                        <span class="result-label">📈 Volume:</span>
-                        <span id="dbValue" class="result-value">— dB</span>
+                        <span class="result-label">📈 Nível:</span>
+                        <span id="dbValue" class="result-value">— dBFS</span>
                     </div>
                     <div class="result-item">
-                        <span class="result-label">📐 Nível:</span>
+                        <span class="result-label">📐 RMS / escala total:</span>
                         <span id="normValue" class="result-value">— %</span>
+                    </div>
+                    <div class="result-item">
+                        <span class="result-label">📏 Amplitude de pico (A):</span>
+                        <span id="amplitudeValue" class="result-value">—</span>
+                    </div>
+                    <div class="result-item">
+                        <span class="result-label">⏱ Período (T):</span>
+                        <span id="periodValue" class="result-value">— ms</span>
                     </div>
                     <div class="result-item func-item">
                         <span class="result-label">🧮 Função:</span>
-                        <span id="funcValue" class="result-value function-line">—</span>
+                        <button id="showFunctionBtn" class="function-toggle" type="button" hidden>Mostrar função</button>
+                        <span id="funcValue" class="result-value function-line" hidden></span>
                     </div>
                 </div>
 
-                <div class="spectrum-container">
-                    <canvas id="spectrumCanvas" width="800" height="120"></canvas>
-                </div>
             </aside>
         </main>
     </div>

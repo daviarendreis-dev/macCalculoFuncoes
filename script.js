@@ -2,8 +2,6 @@
     // ==================== CONFIGURAÇÕES E ESTADO ====================
     const canvas = document.getElementById('waveCanvas');
     const ctx = canvas.getContext('2d');
-    const spectrumCanvas = document.getElementById('spectrumCanvas');
-    const spectrumCtx = spectrumCanvas.getContext('2d');
 
     const startBtn = document.getElementById('startBtn');
     const stopBtn = document.getElementById('stopBtn');
@@ -18,6 +16,9 @@
     const rmsValue = document.getElementById('rmsValue');
     const dbValue = document.getElementById('dbValue');
     const normValue = document.getElementById('normValue');
+    const amplitudeValue = document.getElementById('amplitudeValue');
+    const periodValue = document.getElementById('periodValue');
+    const showFunctionBtn = document.getElementById('showFunctionBtn');
     const funcValue = document.getElementById('funcValue');
 
     // Web Audio API
@@ -76,22 +77,6 @@
         }
     }
 
-    function clearSpectrum() {
-        spectrumCtx.clearRect(0, 0, spectrumCanvas.width, spectrumCanvas.height);
-        spectrumCtx.fillStyle = '#050505';
-        spectrumCtx.fillRect(0, 0, spectrumCanvas.width, spectrumCanvas.height);
-        spectrumCtx.strokeStyle = '#00ffcc30';
-        spectrumCtx.lineWidth = 0.5;
-        const lines = 4;
-        for (let i = 0; i < lines; i++) {
-            const y = (spectrumCanvas.height / (lines - 1)) * i;
-            spectrumCtx.beginPath();
-            spectrumCtx.moveTo(0, y);
-            spectrumCtx.lineTo(spectrumCanvas.width, y);
-            spectrumCtx.stroke();
-        }
-    }
-
     // ==================== DESENHO ====================
     function drawWaveformWindowed(dataArray, color = '#00ffcc', lineWidth = 2.5, glow = true) {
         if (!dataArray || dataArray.length === 0) return;
@@ -129,8 +114,8 @@
     // Overlay tracejado — usa a MESMA fórmula ajustada por mínimos quadrados
     function drawEstimatedOverlay() {
         if (!estimatedFunction || !frozenTimeData || frozenTimeData.length === 0) return;
-        const { A, freq, phi } = estimatedFunction;
-        if (!isFinite(A) || !isFinite(freq) || !isFinite(phi)) return;
+        const { A, freq, originSample } = estimatedFunction;
+        if (!isFinite(A) || !isFinite(freq) || !isFinite(originSample)) return;
 
         const { w, h } = getCanvasSize();
         const N = frozenTimeData.length;
@@ -155,9 +140,8 @@
 
         let first = true;
         for (let i = start; i < end; i++) {
-            const value = A * Math.sin(omega * i + phi);
-            // Mesmo mapeamento vertical do waveform real:
-            const y = h / 2 - value * (h / 2) * 0.9;
+            const value = A * Math.sin(omega * (i - originSample));
+            const y = h / 2 + value * (h / 2);
             const x = (i - start) * step;
             if (first) { ctx.moveTo(x, y); first = false; }
             else ctx.lineTo(x, y);
@@ -167,39 +151,13 @@
         ctx.restore();
     }
 
-    function drawSpectrum(freqData) {
-        const cw = spectrumCanvas.width;
-        const ch = spectrumCanvas.height;
-        spectrumCtx.clearRect(0, 0, cw, ch);
-        spectrumCtx.fillStyle = '#050505';
-        spectrumCtx.fillRect(0, 0, cw, ch);
-
-        if (!freqData) return;
-        const bins = freqData.length;
-        const barWidth = cw / bins;
-
-        for (let i = 0; i < bins; i++) {
-            const value = freqData[i] / 255;
-            const barHeight = value * ch * 0.9;
-            const x = i * barWidth;
-            const y = ch - barHeight;
-            const g = Math.floor(150 + 105 * value);
-            const b = Math.floor(200 + 55 * value);
-            spectrumCtx.fillStyle = `rgb(0, ${g}, ${b})`;
-            spectrumCtx.shadowColor = '#00ffcc';
-            spectrumCtx.shadowBlur = 6;
-            spectrumCtx.fillRect(x, y, Math.max(1, barWidth - 1), barHeight);
-        }
-        spectrumCtx.shadowBlur = 0;
-    }
-
     // ==================== ANÁLISE MATEMÁTICA ====================
     function analyzeFrozenFrame(timeData, freqData, sampleRate) {
         if (!timeData || !freqData) return;
 
         // ---------- 1) Frequência dominante (pico do espectro) ----------
         let peakIndex = 0, peakValue = 0;
-        for (let i = 0; i < freqData.length; i++) {
+        for (let i = 1; i < freqData.length; i++) {
             if (freqData[i] > peakValue) {
                 peakValue = freqData[i];
                 peakIndex = i;
@@ -211,7 +169,13 @@
         // ---------- 2) Ajuste da frequência por zero-crossings ----------
         const N = timeData.length;
         const samples = new Float32Array(N);
-        for (let i = 0; i < N; i++) samples[i] = (timeData[i] - 128) / 128;
+        let sampleMean = 0;
+        for (let i = 0; i < N; i++) {
+            samples[i] = (timeData[i] - 128) / 128;
+            sampleMean += samples[i];
+        }
+        sampleMean /= N;
+        for (let i = 0; i < N; i++) samples[i] -= sampleMean;
 
         const zeroCrossings = [];
         for (let i = 1; i < N; i++) {
@@ -224,16 +188,21 @@
         }
 
         let freqFromZC = frequency;
-        if (zeroCrossings.length > 3) {
-            let periodSum = 0, count = 0;
-            for (let i = 2; i < zeroCrossings.length; i += 2) {
-                const period = zeroCrossings[i] - zeroCrossings[i - 2];
+        if (frequency > 0 && zeroCrossings.length > 1) {
+            const periods = [];
+            for (let i = 1; i < zeroCrossings.length; i++) {
+                const period = zeroCrossings[i] - zeroCrossings[i - 1];
                 if (period > 2 && period < N / 2) {
-                    periodSum += period;
-                    count++;
+                    const crossingFrequency = sampleRate / period;
+                    if (Math.abs(crossingFrequency - frequency) <= Math.max(5, frequency * 0.1)) {
+                        periods.push(period);
+                    }
                 }
             }
-            if (count > 0) freqFromZC = sampleRate / (periodSum / count);
+            if (periods.length > 0) {
+                const averagePeriod = periods.reduce((sum, period) => sum + period, 0) / periods.length;
+                freqFromZC = sampleRate / averagePeriod;
+            }
         }
 
         // ---------- 3) Regressão por mínimos quadrados ----------
@@ -270,26 +239,55 @@
         for (let i = 0; i < N; i++) sumSquares += samples[i] * samples[i];
         const rms = Math.sqrt(sumSquares / N);
         const db = 20 * Math.log10(rms + 1e-10);
-        const normalized = Math.min(1, rms * 2);
+        const normalized = Math.min(1, rms);
 
-        // ---------- 6) Guardar função estimada ----------
+        freqValue.textContent = freqFromZC > 0 ? `${freqFromZC.toFixed(1)} Hz` : '— Hz';
+        rmsValue.textContent = rms.toFixed(5);
+        dbValue.textContent = `${db.toFixed(1)} dBFS`;
+        normValue.textContent = `${(normalized * 100).toFixed(1)} %`;
+        amplitudeValue.textContent = freqFromZC > 0 && Number.isFinite(freqFromZC)
+            ? `${A_fit.toFixed(6)} (${(A_fit * 100).toFixed(3)} %)`
+            : '—';
+        periodValue.textContent = freqFromZC > 0 && Number.isFinite(freqFromZC)
+            ? `${(1000 / freqFromZC).toFixed(2)} ms`
+            : '— ms';
+
+        if (!(freqFromZC > 0) || !Number.isFinite(freqFromZC)) {
+            estimatedFunction = null;
+            funcValue.textContent = 'Nenhum sinal periódico detectável';
+            funcValue.removeAttribute('title');
+            funcValue.hidden = false;
+            statusMsg.textContent = `⏸ Sem sinal periódico · ${db.toFixed(1)} dBFS`;
+            return;
+        }
+
+        const originSample = -phi_fit / omega;
         estimatedFunction = {
             type: 'sen',
             A: A_fit,
             freq: freqFromZC,
-            phi: phi_fit,
-            omega: omega
+            originSample
         };
 
-        // ---------- 7) Atualizar UI ----------
-        freqValue.textContent = `${freqFromZC.toFixed(1)} Hz`;
-        rmsValue.textContent = rms.toFixed(5);
-        dbValue.textContent = `${db.toFixed(1)} dB`;
-        normValue.textContent = `${(normalized * 100).toFixed(1)} %`;
         funcValue.textContent =
-            `y(t) = ${A_fit.toFixed(3)} · sen(2π · ${freqFromZC.toFixed(1)} · t + ${phi_fit.toFixed(2)})`;
+            `f(x) = ${A_fit.toFixed(3)} · sen(2π · ${freqFromZC.toFixed(1)} · x)`;
+        funcValue.title = 'x é o tempo em segundos a partir do cruzamento ascendente por zero ajustado; A está normalizada pela escala digital máxima.';
+        showFunctionBtn.hidden = false;
 
-        statusMsg.textContent = `⏸ ${freqFromZC.toFixed(1)} Hz · ${db.toFixed(1)} dB`;
+        statusMsg.textContent = `⏸ ${freqFromZC.toFixed(1)} Hz · ${db.toFixed(1)} dBFS`;
+    }
+
+    function clearAnalysisResults() {
+        freqValue.textContent = '— Hz';
+        rmsValue.textContent = '—';
+        dbValue.textContent = '— dBFS';
+        normValue.textContent = '— %';
+        amplitudeValue.textContent = '—';
+        periodValue.textContent = '— ms';
+        funcValue.textContent = '—';
+        funcValue.removeAttribute('title');
+        funcValue.hidden = true;
+        showFunctionBtn.hidden = true;
     }
 
     // ==================== LOOP ====================
@@ -297,13 +295,10 @@
         if (!analyser || !isRunning) return;
 
         const timeData = new Uint8Array(analyser.fftSize);
-        const freqData = new Uint8Array(analyser.frequencyBinCount);
         analyser.getByteTimeDomainData(timeData);
-        analyser.getByteFrequencyData(freqData);
 
         clearCanvas();
         drawWaveformWindowed(timeData, '#00ffcc', 2.5, true);
-        drawSpectrum(freqData);
 
         animationId = requestAnimationFrame(drawFrame);
     }
@@ -313,9 +308,6 @@
         if (frozenTimeData) {
             drawWaveformWindowed(frozenTimeData, '#00ffcc', 2.5, true);
             drawEstimatedOverlay();
-        }
-        if (frozenFreqData) {
-            drawSpectrum(frozenFreqData);
         }
     }
 
@@ -365,6 +357,7 @@
             estimatedFunction = null;
             frozenTimeData = null;
             frozenFreqData = null;
+            clearAnalysisResults();
 
             isRunning = true;
             stopBtn.disabled = false;
@@ -456,13 +449,8 @@
         updateZoomLabel();
 
         clearCanvas();
-        clearSpectrum();
 
-        freqValue.textContent = '— Hz';
-        rmsValue.textContent = '—';
-        dbValue.textContent = '— dB';
-        normValue.textContent = '— %';
-        funcValue.textContent = '—';
+        clearAnalysisResults();
 
         startBtn.disabled = false;
         stopBtn.disabled = true;
@@ -493,18 +481,19 @@
     function drawFrameOnce() {
         if (!analyser) return;
         const timeData = new Uint8Array(analyser.fftSize);
-        const freqData = new Uint8Array(analyser.frequencyBinCount);
         analyser.getByteTimeDomainData(timeData);
-        analyser.getByteFrequencyData(freqData);
         clearCanvas();
         drawWaveformWindowed(timeData, '#00ffcc', 2.5, true);
-        drawSpectrum(freqData);
     }
 
     // ==================== EVENTOS ====================
     startBtn.addEventListener('click', startCapture);
     stopBtn.addEventListener('click', stopAndAnalyze);
     clearBtn.addEventListener('click', clearAll);
+    showFunctionBtn.addEventListener('click', () => {
+        showFunctionBtn.hidden = true;
+        funcValue.hidden = false;
+    });
 
     zoomInBtn.addEventListener('click', () => applyZoom(zoomFactor * ZOOM_STEP));
     zoomOutBtn.addEventListener('click', () => applyZoom(zoomFactor / ZOOM_STEP));
@@ -573,6 +562,5 @@
     // Inicialização
     updateZoomLabel();
     clearCanvas();
-    clearSpectrum();
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 })();
